@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>AppleBasket</string>
+    <key>CFBundleDisplayName</key>
+    <string>Apple Basket</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.jquyatt.applebasket</string>
+    <key>CFBundleExecutable</key>
+    <string>AppleBasket</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <!-- Menu-bar-only: no Dock icon, no app menu -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <!-- Required for requestFullAccessToReminders() on macOS 14+ -->
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Apple Basket keeps your Reminders synced with Home Assistant.</string>
+    <!-- Legacy key for macOS 13 -->
+    <key>NSRemindersUsageDescription</key>
+    <string>Apple Basket keeps your Reminders synced with Home Assistant.</string>
+
+    <!-- Local network access: the bridge reaches Home Assistant on your LAN -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Apple Basket connects to your Home Assistant server on the local network.</string>
+</dict>
+</plist>

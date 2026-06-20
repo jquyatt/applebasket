@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Phase 0 stub. Apple Basket runs UNSANDBOXED as a self-signed login item,
+      so none of these are required yet — EventKit access is gated by TCC +
+      the Info.plist usage strings, not by entitlements.
+
+      This file exists so signing has a stable place to grow. make_app.sh only
+      passes it to codesign when it is non-empty (see the script). Uncomment
+      keys here as later phases need them; sandbox keys (network.*, the
+      reminders entitlement) ONLY take effect once app-sandbox is true.
+    -->
+
+    <!-- Keep the sandbox OFF for now. A login-item dev build does not need it,
+         and turning it on would require re-plumbing the local HA listener. -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- ===== Phase 1+ (only meaningful if app-sandbox becomes true) =====
+
+    <key>com.apple.security.personal-information.reminders</key>
+    <true/>
+
+    <key>com.apple.security.network.client</key>   ~ HA REST push
+    <true/>
+    <key>com.apple.security.network.server</key>   ~ local HA->Mac listener
+    <true/>
+
+    ===== Phase 2+ =====
+
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    -->
+</dict>
+</plist>

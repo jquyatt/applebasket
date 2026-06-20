@@ -1,19 +1,25 @@
 # Apple Basket
 
 EventKit ↔ Home Assistant bridge for a Mac that stays logged in.
-Ships as a menu bar app plus a scripting CLI, sharing one EventKit core.
-
 Keep your Apples at Home 🧺
 
+**This repo carries both halves of the bridge** — the macOS app and the Home
+Assistant integration — which run on separate machines and talk over your LAN:
+
 ```
-Sources/BridgeCore/        EventKit wrapper (shared)
-Sources/reminderbridge/    CLI  -> binary `reminderbridge`
-Sources/ReminderBridgeApp/ menu bar app (MenuBarExtra)
-app/Info.plist             bundle plist (usage strings, LSUIElement)
-app/make_app.sh            assemble + sign AppleBasket.app
+Sources/                         macOS menu bar app + `reminderbridge` CLI (Swift)
+  BridgeCore/                    shared EventKit wrapper
+  reminderbridge/                CLI -> binary `reminderbridge`
+  ReminderBridgeApp/             menu bar app (MenuBarExtra)
+app/                             .app bundle plist + build/sign script
+custom_components/applebasket/   Home Assistant integration (install via HACS)
+hacs.json                        makes the repo a HACS custom repository
 ```
 
-Prove EventKit read/write/watch works as a resident login-item app on the auto-login desktop. Transport + HA integration come after.
+The Mac side you build from source (`swift build`) and run as a login item; the
+HA side installs into Home Assistant through HACS (or a manual copy). The two are
+independent — HACS only pulls `custom_components/applebasket/` and ignores the
+Swift app.
 
 ## Build
 
@@ -105,20 +111,28 @@ reconciles idempotently); inbound writes (`add` / `complete` / `delete`) come ba
 over the WebSocket as `applebasket_command` events. There's no optimistic update —
 the next snapshot (~1s) reflects the change, which sidesteps uid reconciliation.
 
-**Install the integration** (on the HA box):
+**Install the integration** (on the HA box). Two routes:
+
+*Via HACS (recommended).* HACS → ⋮ → **Custom repositories** → add
+`https://github.com/jquyatt/applebasket`, category **Integration** → **Download**.
+HACS handles future updates with a click — no manual file copying, no stale
+bytecode to clear.
+
+*Manual.* Copy the folder and restart HA:
 
 ```sh
 cp -r custom_components/applebasket <config>/custom_components/
 ```
 
-Restart HA, then add it once in the UI: **Settings → Devices & Services →
-＋ Add Integration → Apple Basket**. It's a config-entry integration — no
-`configuration.yaml` edit, single instance, no fields to fill in (the HA URL and
+Either way, after restarting HA add it once in the UI: **Settings → Devices &
+Services → ＋ Add Integration → Apple Basket**. It's a config-entry integration —
+no `configuration.yaml` edit, single instance, no fields to fill in (the HA URL and
 token live on the Mac side). The entry persists across restarts.
 
-> Editing the integration's Python later? Clear its bytecode first —
-> `rm -rf <config>/custom_components/applebasket/__pycache__` — or HA may keep
-> running stale code. The cache is root-owned, so use an SSH/File-Editor add-on.
+> Only relevant to **manual** installs: editing the integration's Python later
+> means clearing its bytecode first — `rm -rf <config>/custom_components/applebasket/__pycache__`
+> — or HA may keep running stale code (the cache is root-owned, so use an
+> SSH/File-Editor add-on). HACS sidesteps this entirely.
 
 **Wire the Mac.** Configure the HA connection (below), then rebuild and relaunch:
 
