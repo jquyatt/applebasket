@@ -1,5 +1,11 @@
 import Foundation
 
+// Gated stderr logging, same convention as the walker's dbg().
+private func haDbg(_ s: String) {
+    guard ProcessInfo.processInfo.environment["APPLEBASKET_DEBUG"] != nil else { return }
+    FileHandle.standardError.write(Data(("HA: " + s + "\n").utf8))
+}
+
 /// Config from env. Set both or HA push is simply skipped (local-only mode).
 /// NOTE: a GUI login item does NOT inherit your shell env. For the .app, seed
 /// the session once:  launchctl setenv APPLEBASKET_HA_URL http://homeassistant.local:8123
@@ -27,15 +33,27 @@ public final class HAClient {
     /// HA reconciles the snapshot idempotently, so per-item deltas are unneeded.
     /// Returns true on HTTP 200 — that success/fail IS the reachability signal.
     @discardableResult
-    public func fireEvent(_ event: String, _ payload: [String: Any]) async -> Bool {
-        var req = URLRequest(url: config.baseURL.appendingPathComponent("api/events/\(event)"),
-                             timeoutInterval: 5)
+    public func fireEvent<T: Encodable>(_ event: String, _ payload: T) async -> Bool {
+        let url = config.baseURL.appendingPathComponent("api/events/\(event)")
+        var req = URLRequest(url: url, timeoutInterval: 5)
         req.httpMethod = "POST"
         req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
-        guard let (_, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
-        return true
+        req.httpBody = try? JSONEncoder().encode(payload)
+
+        // ponytail: collapse-to-false hid WHY pushes failed for a whole session.
+        // Surface the real reason on stderr (gated) so unreachable is diagnosable.
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            if code != 200 {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                haDbg("HA POST \(url.absoluteString) → HTTP \(code) \(body.prefix(200))")
+            }
+            return code == 200
+        } catch {
+            haDbg("HA POST \(url.absoluteString) → \(error.localizedDescription)")
+            return false
+        }
     }
 }

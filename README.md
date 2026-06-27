@@ -203,4 +203,56 @@ WebSocket (setup under [Home Assistant integration](#home-assistant-integration)
 
 **Phase 3 — Calendar + Health** ⬜
 Same app, surface Calendar and HealthKit as HA sensors.
+
+**Phase 4 — Rich metadata + custom dashboard cards** ⬜
+Keep the bare `todo.*` entities for native HA services, but widen the
+`applebasket_state` payload to carry the EventKit fields the to-do model drops —
+due, notes, priority, recurrence, completed-date — surfaced as item attributes or
+companion sensors, then build Lovelace cards that render the full picture. A custom
+card can only draw what's been transported in, so the real work is the data channel,
+not the card.
+
+EventKit's hard gaps need a side channel. The public API exposes none of the
+app-level structure — **tags**, **sub-tasks**, **list Sections** (iOS 17), or
+**Groups** of lists; all are invisible to it. **Smart Lists are out** too —
+confirmed they don't surface in `calendars(for: .reminder)` (tested June 2026).
+Next candidate: the **Shortcuts** `shortcuts` CLI — its "Find Reminders" action
+*can* filter by tag, so a shelled-out shortcut could feed tag-grouped reminders
+EventKit refuses to expose. Worth a probe before designing around it (lesson
+learned). Sub-tasks, Sections, and Groups likely stay stuck — no known channel
+surfaces their structure, so they wait on Apple opening the API.
+
+**Phase 5 — Accessibility catch-up (experimental)** ⬜
+The structure the data APIs hide is still readable by scraping the native Reminders
+app's Accessibility tree (mac-use / System Events) on an always-on GUI Mac.
+
+*Confirmed against a real sectioned, sub-tasked, tagged list:*
+- **Tags** — two ways: named clickable buttons in the sidebar "Tags" section (click →
+  filter pane → read titles → tag→reminder map), *and* inline per item as
+  `static text "#routine"` inside the item's group.
+- **Due dates / notes** — inline on the item (`static text "240709 10:00 PM"`; a second
+  text field holds the note).
+- **Sections** ("Morning"/"Night") — distinct rows (text field + chevron, no checkbox):
+  detectable and nameable, but flat siblings, not parents. Membership is positional —
+  items between header N and N+1 belong to N.
+- **Sub-tasks** — flattened: children are sibling rows right after the parent, not nested
+  under it. The parent carries a disclosure chevron the children lack, so the hierarchy is
+  reconstructable by heuristic (parent-with-chevron → trailing checkbox rows are its kids
+  until the next parent/section), not by tree structure.
+
+Tags/due/notes come through clean; sections and sub-tasks are recoverable only by
+positional heuristics — usable but brittle.
+
+*Architecture — a self-checking ladder.* EventKit first (fast, reliable core: titles,
+dates, notes, completion, stable ids). mac-use AX scrape second (the structure EventKit
+hides). Screenshot-based computer use third, as the ground-truth check — it caught
+mac-use selecting the **wrong list** and feeding back another list's contents that would
+otherwise have shipped as fact. The scrape is a periodic supplement, merged back by title.
+
+*Caveats, observed first-hand.* mac-use's click-by-path is unreliable (it navigated to the
+wrong list) — prefer coordinate clicks verified by a screenshot. Deep AX paths are brittle
+(walk by role/description, not indices). Items expose no `calendarItemIdentifier`, so the
+merge is title-fuzzy. Needs the window frontmost with Accessibility granted, seconds per
+pass — a catch-up, not real-time.
+
 # applebasket

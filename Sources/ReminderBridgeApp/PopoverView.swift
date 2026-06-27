@@ -46,6 +46,23 @@ struct PopoverView: View {
                     }
                 }
 
+            case .localOnly:
+                Text("Reading Reminders locally, but not connected to Home Assistant.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Set APPLEBASKET_HA_URL and APPLEBASKET_HA_TOKEN (via launchctl setenv for the app), then relaunch.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !model.lists.isEmpty {
+                    Divider()
+                    ForEach(model.lists, id: \.self) { name in
+                        Label(name, systemImage: "list.bullet")
+                            .font(.caption)
+                    }
+                }
+
             case .noAccess:
                 Text("Approve Reminders in System Settings → Privacy & Security → Reminders, then reopen the app.")
                     .font(.caption)

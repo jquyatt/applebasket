@@ -30,6 +30,26 @@ public struct ReminderDTO: Codable {
     public let notes: String?
 }
 
+/// applebasket_state event body. Codable so it encodes to JSON directly and ships
+/// to HA. `summary` is the compact one-liner; section/parent/tags ship raw too for
+/// custom cards. Optionals with nil are omitted by the encoder below.
+public struct StatePayload: Codable {
+    public struct Item: Codable {
+        public let uid: String
+        public let summary: String
+        public let due: String?
+        public let notes: String?
+        public let section: String?
+        public let parentTitle: String?
+        public let tags: [String]?
+    }
+    public struct List: Codable {
+        public let list: String
+        public let items: [Item]
+    }
+    public let lists: [List]
+}
+
 public final class EventKitStore {
     public let store = EKEventStore()
 
@@ -92,14 +112,66 @@ public final class EventKitStore {
 
     /// Body of an `applebasket_state` event: open items grouped by list, every
     /// list present (even empty). Snapshot-shaped so HA reconciles idempotently.
-    public func statePayload() async -> [String: Any] {
+    /// If Accessibility is available, enriches items with tags, sections, sub-task structure.
+    public func statePayload() async -> StatePayload {
         let open = await reminders(includeCompleted: false)
         let byList = Dictionary(grouping: open, by: \.list)
-        let lists: [[String: Any]] = self.lists().map { name in
-            ["list": name,
-             "items": (byList[name] ?? []).map { ["uid": $0.id, "summary": $0.title] }]
+        let walker = AccessibilityWalker()
+
+        var lists: [StatePayload.List] = []
+
+        for name in self.lists() {
+            // Fetch AX data for this list once, then merge into all items
+            var axData = (try? await walker.walk(listName: name)) ?? []
+
+            let ranked = (byList[name] ?? []).map { reminder -> (Int, StatePayload.Item) in
+                // AX structure (Phase 5): tags, sections, sub-task parent.
+                // ponytail: swallows AX errors (not granted / app not frontmost);
+                // item then ships with EventKit data only, no degradation.
+                let ax = TitleMerge.findBest(for: reminder.title, in: &axData)
+                let item = StatePayload.Item(
+                    uid: reminder.id,
+                    summary: Self.oneLiner(title: reminder.title, ax: ax),
+                    due: reminder.due,
+                    notes: reminder.notes,
+                    section: ax?.section,
+                    parentTitle: ax?.parentTitle,
+                    tags: (ax?.tags.isEmpty == false) ? ax?.tags : nil
+                )
+                // Sort key = the matched item's visual walk position. The matched
+                // item is the correct one even for duplicate titles (findBest consumes
+                // in order), so collisions sort right. No AX match → last.
+                return (ax?.walkIndex ?? Int.max, item)
+            }
+            // Stable sort by walk position; unmatched (Int.max) keep EventKit order, last.
+            let items = ranked.enumerated()
+                .sorted { ($0.element.0, $0.offset) < ($1.element.0, $1.offset) }
+                .map { $0.element.1 }
+            lists.append(StatePayload.List(list: name, items: items))
         }
-        return ["lists": lists]
+
+        return StatePayload(lists: lists)
+    }
+
+    /// Compact display line: `[section] * [parent >] title [#tags]`
+    /// e.g. "Morning * Hygiene > Brush Teeth", "Night * Face/Neck > Lactic Acid #skincare"
+    static func oneLiner(title: String, ax: AccessibilityItem?) -> String {
+        guard let ax else { return title }
+
+        // Right side: "parent > title #tags"
+        var right = title
+        if let parent = ax.parentTitle {
+            right = "\(parent) > \(right)"
+        }
+        if !ax.tags.isEmpty {
+            right += " " + ax.tags.map { "#\($0)" }.joined(separator: " ")
+        }
+
+        // Section prefix joined with " * " per the payload spec.
+        if let section = ax.section {
+            return "\(section) * \(right)"
+        }
+        return right
     }
 
     private func reminder(id: String) throws -> EKReminder {

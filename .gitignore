@@ -12,3 +12,10 @@ __pycache__/
 
 # macOS cruft
 .DS_Store
+
+# graphify knowledge-graph output (generated)
+graphify-out/
+
+# Phase 5 working/design docs (kept local, not shipped)
+PHASE5_*.md
+custom_components/applebasket/PHASE5_INTEGRATION.md

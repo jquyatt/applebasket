@@ -9,31 +9,35 @@ final class BridgeModel: ObservableObject {
     enum Status {
         case starting
         case ok
-        case stale          // bridged locally, HA unreachable
+        case stale          // HA configured but unreachable / push failing
+        case localOnly      // no HA config (env vars unset) — NOT bridged
         case noAccess
 
         var symbol: String {
             switch self {
-            case .starting: return "ellipsis.circle"
-            case .ok:       return "checklist"
-            case .stale:    return "checklist.unchecked"
-            case .noAccess: return "lock.slash"
+            case .starting:  return "ellipsis.circle"
+            case .ok:        return "checklist"
+            case .stale:     return "checklist.unchecked"
+            case .localOnly: return "bolt.horizontal.circle"
+            case .noAccess:  return "lock.slash"
             }
         }
         var label: String {
             switch self {
-            case .starting: return "Starting…"
-            case .ok:       return "Bridged"
-            case .stale:    return "HA unreachable"
-            case .noAccess: return "No Reminders access"
+            case .starting:  return "Starting…"
+            case .ok:        return "Bridged"
+            case .stale:     return "HA unreachable"
+            case .localOnly: return "Not connected to HA (set env vars)"
+            case .noAccess:  return "No Reminders access"
             }
         }
         var color: Color {
             switch self {
-            case .starting: return .secondary
-            case .ok:       return .green
-            case .stale:    return .yellow
-            case .noAccess: return .orange
+            case .starting:  return .secondary
+            case .ok:        return .green
+            case .stale:     return .yellow
+            case .localOnly: return .secondary   // not bridged, but working locally
+            case .noAccess:  return .orange
             }
         }
     }
@@ -110,7 +114,9 @@ final class BridgeModel: ObservableObject {
     }
 
     private func recomputeStatus() {
-        guard config != nil else { status = .ok; return }   // local-only: always OK
+        // No HA config = not bridged. Say so instead of showing a green "Bridged"
+        // — that false-OK hid unset env vars for a whole debugging session.
+        guard config != nil else { status = .localOnly; return }
         status = (pushOK && linkUp) ? .ok : .stale
     }
 

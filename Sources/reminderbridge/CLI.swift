@@ -1,5 +1,86 @@
 import Foundation
+import AppKit
 import BridgeCore
+
+// Test harnesses (Phase 5)
+final class AccessibilityWalkerTest {
+    func test(listName: String = "Inbox") async {
+        print("🔍 Starting Accessibility walk test for '\(listName)'...")
+        let walker = AccessibilityWalker()
+        do {
+            let items = try await walker.walk(listName: listName)
+            print("✅ Accessibility walk succeeded")
+            print("   Items found: \(items.count)")
+            if items.isEmpty {
+                print("   ⚠️  No items detected. Check that the list has items and is visible.")
+            } else {
+                for item in items {
+                    print("")
+                    print("   📋 \(item.title)")
+                    if !item.tags.isEmpty {
+                        print("      Tags: \(item.tags.joined(separator: ", "))")
+                    }
+                    if let section = item.section {
+                        print("      Section: \(section)")
+                    }
+                    if let parent = item.parentTitle {
+                        print("      Parent: \(parent)")
+                    }
+                }
+            }
+            print("")
+            print("📸 Taking screenshot for verification...")
+            try takeScreenshot(listName: listName)
+        } catch AXWalkerError.noRemindersProcess {
+            print("❌ Reminders app not running. Launch it and try again.")
+        } catch AXWalkerError.accessibilityDenied {
+            print("❌ Accessibility not granted to Reminders.")
+            print("   System Settings → Privacy & Security → Accessibility")
+            print("   Add com.apple.reminders to the list and try again.")
+        } catch {
+            print("❌ Walk failed with error: \(error)")
+            print("   Type: \(type(of: error))")
+        }
+    }
+
+    private func takeScreenshot(listName: String) throws {
+        guard let remindersApp = NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.apple.reminders"
+        ).first else {
+            print("⚠️  Could not find Reminders app for screenshot")
+            return
+        }
+        remindersApp.activate(options: .activateAllWindows)
+        usleep(500_000)
+        guard let screen = NSScreen.main else {
+            print("⚠️  Could not get main screen for screenshot")
+            return
+        }
+        guard let cgImage = CGWindowListCreateImage(
+            screen.frame,
+            .optionOnScreenBelowWindow,
+            .zero,
+            [.boundsIgnoreFraming, .bestResolution]
+        ) else {
+            print("⚠️  Could not capture window")
+            return
+        }
+        let nsImage = NSImage(cgImage: cgImage, size: screen.frame.size)
+        let desktopPath = "~/Desktop/reminders-phase5-test.png"
+            .replacingOccurrences(of: "~", with: NSHomeDirectory())
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmapImage.representation(using: .png, properties: [:])
+        else {
+            print("⚠️  Could not encode screenshot")
+            return
+        }
+        try pngData.write(to: URL(fileURLWithPath: desktopPath))
+        print("✅ Screenshot saved to \(desktopPath)")
+        print("   Compare it with the parsed items above.")
+    }
+}
+
 
 @main
 struct CLI {
@@ -52,6 +133,19 @@ struct CLI {
                 print(ok ? "ok" : "unreachable")
                 if !ok { exit(1) }
 
+            case "test-accessibility":
+                let listName = positional(args, after: "test-accessibility") ?? "Inbox"
+                let test = AccessibilityWalkerTest()
+                await test.test(listName: listName)
+
+            case "test-merge":
+                let test = TitleMergeTest()
+                test.runAll()
+
+            case "test-payload":
+                let payload = await store.statePayload()
+                CLI.printJSON(payload)
+
             default:
                 print("""
                 reminderbridge — EventKit CLI (v0.1)
@@ -61,6 +155,9 @@ struct CLI {
                   done <id>                                   mark complete
                   remove <id>                                 delete
                   push                                        fire test event to HA
+                  test-accessibility [LIST]                  test Phase 5 AX walk
+                  test-merge                                 test Phase 5 title fuzzy-match
+                  test-payload [LIST]                        show enriched state payload (Phase 5)
                 """)
             }
         } catch {
