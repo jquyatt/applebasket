@@ -57,7 +57,12 @@ Launch `/Applications/AppleBasket.app` in GUI. Two approval prompts appear — c
    (`stale`). You can also toggle it later under System Settings → Privacy &
    Security → Local Network.
 
-The menu bar checklist icon comes live. Click it to see status, open count, last change, and your bridged lists.
+The menu bar checklist icon comes live. Click it to see status, open count, last
+change, and your bridged lists. The status reads honestly: **Bridged** (green) only
+when a push has landed, **HA unreachable** (yellow) when configured but the push
+fails, and **Not connected to HA** when the `APPLEBASKET_*` env vars aren't set —
+the app reads Reminders locally but pushes nothing. (Don't trust a build that shows
+"Bridged" without env vars; that false-OK was a real bug, now fixed.)
 
 The grants live in the user TCC database. They survive reboots and OS updates within the same major version. If `tccutil reset Reminders com.jquyatt.applebasket` wipes the Reminders grant, just re-approve the prompt.
 
@@ -80,7 +85,13 @@ reminderbridge add <title> [--list NAME] [--notes TEXT]
 reminderbridge done <id>
 reminderbridge remove <id>
 reminderbridge push                  # fire an applebasket_state snapshot to HA
+reminderbridge test-accessibility [LIST]   # walk the AX tree, print parse + screenshot
+reminderbridge test-merge            # run the TitleMerge unit tests
+reminderbridge test-payload          # print the full applebasket_state JSON (pipe to jq)
 ```
+
+Set `APPLEBASKET_DEBUG=1` to send the walker's and HA client's diagnostic lines to
+stderr (kept off stdout so `test-payload | jq` stays clean).
 
 ## Build gotcha (read this)
 
@@ -222,11 +233,30 @@ EventKit refuses to expose. Worth a probe before designing around it (lesson
 learned). Sub-tasks, Sections, and Groups likely stay stuck — no known channel
 surfaces their structure, so they wait on Apple opening the API.
 
-**Phase 5 — Accessibility catch-up (experimental)** ⬜
-The structure the data APIs hide is still readable by scraping the native Reminders
-app's Accessibility tree (mac-use / System Events) on an always-on GUI Mac.
+**Phase 5 — Accessibility catch-up (experimental)** ✅
+The structure the data APIs hide is read directly from the native Reminders app's
+Accessibility tree (AXUIElement API, no mac-use dependency) on an always-on GUI Mac,
+merged onto EventKit reminders, and shipped to HA as compact one-liner summaries.
 
-*Confirmed against a real sectioned, sub-tasked, tagged list:*
+- [x] walk the AX tree, recover sections, sub-task parents, and tags
+- [x] merge onto EventKit reminders by title, duplicate-safe (consume-in-order)
+- [x] compact summary format `[section] * [parent >] title [#tags]`
+- [x] payload sorted to match the Reminders app's visual order
+- [x] lists render in HA as native `todo.*` entities, structure intact
+
+*How it works.* `AccessibilityWalker` finds the content outline in the Reminders
+window (the one `AXOutline` whose rows have checkboxes — the sidebar is a decoy),
+reads each row's title/checkbox/chevron/tags out of its nested `AXCell`, and tracks
+section headers and parent chevrons to attribute sub-tasks. List selection uses
+`AXSelected` (not a press — pressing a sidebar row's hidden share button pops the
+Participants sheet). `TitleMerge` then attaches that structure to EventKit reminders;
+because EventKit can't expose section or parent, it matches by title and consumes
+matches in walk order, so duplicate titles (e.g. "Brush Teeth" in both Morning and
+Night) land in their correct sections. Each item records its walk position so the
+HA payload sorts back to visual order. Run `reminderbridge test-accessibility <list>`
+to dump a parse + screenshot for ground-truth comparison.
+
+*Original confirmation against a real sectioned, sub-tasked, tagged list:*
 - **Tags** — two ways: named clickable buttons in the sidebar "Tags" section (click →
   filter pane → read titles → tag→reminder map), *and* inline per item as
   `static text "#routine"` inside the item's group.
@@ -244,15 +274,19 @@ Tags/due/notes come through clean; sections and sub-tasks are recoverable only b
 positional heuristics — usable but brittle.
 
 *Architecture — a self-checking ladder.* EventKit first (fast, reliable core: titles,
-dates, notes, completion, stable ids). mac-use AX scrape second (the structure EventKit
-hides). Screenshot-based computer use third, as the ground-truth check — it caught
-mac-use selecting the **wrong list** and feeding back another list's contents that would
-otherwise have shipped as fact. The scrape is a periodic supplement, merged back by title.
+dates, notes, completion, stable ids). Direct AX walk second (the structure EventKit
+hides), via the `AXUIElement` API rather than mac-use — fewer moving parts and no extra
+dependency. Screenshot-based verification third, as the ground-truth check — during
+development it caught the walker reading the **wrong list** (and another list's contents
+that would otherwise have shipped as fact). The walk is a periodic supplement, merged
+back by title.
 
-*Caveats, observed first-hand.* mac-use's click-by-path is unreliable (it navigated to the
-wrong list) — prefer coordinate clicks verified by a screenshot. Deep AX paths are brittle
-(walk by role/description, not indices). Items expose no `calendarItemIdentifier`, so the
-merge is title-fuzzy. Needs the window frontmost with Accessibility granted, seconds per
-pass — a catch-up, not real-time.
+*Caveats, observed first-hand.* The fix for wrong-list selection was to stop pressing
+sidebar rows (a hidden share button responded, popping the Participants sheet) and select
+via `AXSelected` instead. Search the tree for the content outline by role + checkbox
+presence, not by fixed indices — the nested split layout shifts across macOS versions and
+sidebar states. Items expose no `calendarItemIdentifier`, so the merge is title-fuzzy
+(Levenshtein ≤ 2) with duplicate-safe consume-in-order. Needs the Reminders window
+frontmost with Accessibility granted, ~1–2 s per pass — a catch-up, not real-time.
 
 # applebasket
